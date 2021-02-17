@@ -1,0 +1,167 @@
+Unzip library for PSP の使用方法です。 - written by ruka
+
+◇概要
+  PSPでzip形式のファイルを展開するライブラリの使用方法です。PSPでの使用に
+　当たり、複雑なことは排除しさっぱりしたインタフェイスにしたつもりです。
+　実行時作業エリアとしてメモリを約64K使います。
+
+◇謝辞
+  ソースを公開してくれたhenoheno氏、有難うございました。
+　プログラムをみんなで作っていくのは素晴らしいっ！
+
+◇Unzipを使用するのに必要なインタフェイス
+Unzip機能を利用するには、２つの関数と１つのコールバック関数で扱えるお手軽な
+仕様にしました。(即興で考えたのでこれで勘弁して下さい…)
+以下に関数のプロトタイプ宣言と動作仕様をまとめておきました。
+
+
+
+□ Unzipからの通知を受け取るコールバック関数のポインタを指定する
+void Unzip_setCallback(int (*pfuncCallback)(int nCallbackId, unsigned long ulExtractSize,
+		      unsigned long ulCurrentPosition, const void *pData,
+                      unsigned long ulDataSize, unsigned long ulUserData));
+＜引数説明＞
+pfuncCallback	    : Unzip libraryが処理中にコールバックをするコールバック関数のポインタ
+
+return : なし
+
+
+
+□ Unzipに指定したファイルの解凍します。
+int Unzip_execExtract(const char *pszTargetFile, unsigned long ulUserData);
+＜引数説明＞
+pszTargetFile       : 展開するzipファイルをフルパスで指定します。
+ulUserData          : ユーザ定義の値を指定できます。この値はコールバックに通知されます。
+
+return : UZEXR_OK 処理は正常に終了しました。
+         UZEXR_CANCEL コールバック内でキャンセルされました。
+         UZEXR_INVALIDCALLBACK Unzip_setCallbackでコールバック関数が設定がされていません。
+         UZEXR_INVALIDFILE ファイル異常で終了しました。
+         UZEXR_FATALERROR 致命的なエラーが発生しました。
+note : UZCB_FIND_FILE コールバックの戻り値をすべて UZCBR_PASS にしても UZEXR_OK が帰ってきます。
+
+
+
+□ Unzip_execExtractを呼び出した際のコールバック関数です。
+int funcUnzipCallback(int nCallbackId,
+                      unsigned long ulExtractSize,
+		      unsigned long ulCurrentPosition,
+                      const void *pData,
+                      unsigned long ulDataSize,
+                      unsigned long ulUserData);
+＜引数説明＞
+nCallbackId         : コールバックの分類。
+ulExtractSize       : 展開後のファイルサイズ
+ulCurrentPosition   : データの位置
+pData		    : 何かのデータへのポインタ。nCallbackIdの値により意味が変わる。
+ulDataSize	    : pData(何かのデータ)のサイズ
+ulUserData	    : Unzip_execExtractを呼び出した際の第2引数が格納されています。
+
+nCallbackId値と各種パラメータの関連は以下の通りです。
+
+
+--- UZCB_FIND_FILE ---
+nCallbackId	    : UZCB_FIND_FILE	ファイルを検索時のコールバックです。
+ulExtractSize       : 見つかったファイルの展開したデータ全体のサイズ
+ulCurrentPosition   : 未使用
+pData   	    : 見つかったファイル名へのポインタ。
+		      (const char *キャストしてアクセスして下さい)
+ulDataSize	    : 未使用
+ulUserData	    : Unzip_execExtractを呼び出した際の第２引数が格納されています。
+
+return  : UZCBR_OK このファイルの内容を展開します。
+          UZCBR_PASS このファイルは無視し、次のファイルを検索します。
+          UZCBR_CANCEL 展開処理をキャンセルしUnzip_execExtractから復帰します。
+----------------------------------------------------------------------
+
+
+--- UZCB_EXTRACT_PROGRESS ---
+nCallbackId	    : UZCB_EXTRACT_PROGRESS	ファイルの展開情報のコールバックです。
+ulExtractSize       : 現在展開しているデータ全体のサイズ
+ulCurrentPosition   : 現在展開しているデータの先頭位置
+pData		    : 展開したデータへのポインタ(const unsigned char*でアクセス)
+ulDataSize	    : 展開したデータのサイズ
+ulUserData	    : Unzip_execExtractを呼び出した際の第２引数が格納されています。
+
+return  : UZCBR_OK 引き続き処理を行います。
+          UZCBR_PASS このファイルは無視し、次のファイルを検索します。
+          UZCBR_CANCEL 展開処理をキャンセルしUnzip_execExtractから復帰します。
+
+note : Unzip内では、最大8192バイトのデータにて通知を行います。巨大なデータを
+       扱う際にはご注意ください。(通知毎にプログレスを画面に出すと凄く遅くなる)
+       UZCB_FIND_FILE コールバックで常にUZCBR_OKを返し、このコールバックにて実際の
+       中身を確認して 処理する/しない も可能です。
+----------------------------------------------------------------------
+
+
+
+
+
+◇ 実装例
+
+#include "zlibInterface.h"
+
+// 宣言
+int funcUnzipCallback(int nCallbackId,
+                      unsigned long ulExtractSize,
+		      unsigned long ulCurrentPosition,
+                      const void *pData,
+                      unsigned long ulDataSize,
+                      unsigned long ulUserData);
+
+
+int xmain(int argc, char *argv)
+{
+    int nRet;
+    // コールバック関数をセット
+    Unzip_setCallback(funcUnzipCallback);
+
+    nRet = Unzip_execExtract("ms0:/PSP/GAME/HogeHoge/Foo.zip", 0);
+
+    return 0;
+}
+
+
+int funcUnzipCallback(int nCallbackId,
+                      unsigned long ulExtractSize,
+		      unsigned long ulCurrentPosition,
+                      const void *pData,
+                      unsigned long ulDataSize,
+                      unsigned long ulUserData)
+{
+    const char *pszFileName;
+    const unsigned char *pbData;
+
+    switch(nCallbackId) {
+    case UZCB_FIND_FILE:
+	pszFileName = (const char *)pData;
+	/*
+         ここで、ファイルの拡張子を見るなりして、処理するかどうかを判断する
+        */
+        break;
+    case UZCB_EXTRACT_PROGRESS:
+	pbData = (const unsigned char *)pData;
+	/*
+         ここで、実際に展開されたデータを処理する。
+        */
+        break;
+    default: // unknown...
+	/*
+         現状のバージョンではここには絶対にこない(と思う)が、FAILSAFEのために何か
+         デバッグコードをいれておくと良いかも…
+        */
+        break; 
+    }
+    return 1;
+}
+
+※上記コードは適当に書いたコードなのでコンパイルが通らないかもしれません。^-^;
+あくまで、 "こんな感じで使う" という参考コードです。
+
+実際に使用しているものにRINがあります。menu.cの中にコードがあるので実装の参考
+にして下さい。リンク方法が分からない方もRINのMakefileを参考にして下さい。
+
+履歴
+2005/06/03 固定作業領域を無くし、６４Kの作業領域だけで済むように変更
+
+2005/05/?? テスト版公開
